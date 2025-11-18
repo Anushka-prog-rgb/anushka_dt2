@@ -1,140 +1,85 @@
-from flask import Flask, request, jsonify
-from flask_sqlalchemy import SQLAlchemy
+from flask import Blueprint, request, jsonify
+from . import db
 from datetime import datetime
 
-app = Flask(__name__)
+user_bp = Blueprint("user_bp", __name__)
+task_bp = Blueprint("task_bp", __name__)
 
-# --------------------------
-# DATABASE CONFIG
-# --------------------------
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:passw0rd@localhost:3308/app_db?charset=utf8mb4'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# Models
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(50), unique=True, nullable=False)
+    email = db.Column(db.String(100), unique=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-db = SQLAlchemy(app)
-
-# --------------------------
-# PART 1: USER MODEL
-# --------------------------
-
-class User ( db . Model ):
-    id = db . Column ( db . Integer , primary_key = True )
-    username = db . Column ( db . String (50) , unique = True )
-    email = db . Column ( db . String (100) , unique = True )
-    created_at = db . Column ( db . DateTime )
-
-# --------------------------
-# TASK MODEL
-# --------------------------
-class Task ( db . Model ):
-# Table name
-    __tablename__ = 'tasks'
-# Columns
-    id = db . Column ( db . Integer , primary_key = True )
-    title = db . Column ( db . String (100) , nullable = False )
-    description = db . Column ( db . Text )
-    completed = db . Column ( db . Boolean , default = False )
-    created_at = db . Column ( db . DateTime , default = datetime . utcnow() )
-    def to_dict ( self ):
+    def to_dict(self):
         return {
-            'id': self .id ,
-            'title': self . title ,
-            'description ': self . description ,
-            'completed ': self . completed ,
-            'created_at ': self . created_at . isoformat ()
+            "id": self.id,
+            "username": self.username,
+            "email": self.email,
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M:%S")
         }
 
-# --------------------------
-# CREATE TABLES AUTOMATICALLY
-# --------------------------
-with app.app_context () :
-    db.create_all ()
-    print (" Database tables created !")
+class Task(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(100), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    completed = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "title": self.title,
+            "user_id": self.user_id,
+            "completed": self.completed,
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M:%S")
+        }
 
-# ---------------------------------------------------
-# PART 2: USER CRUD ENDPOINTS
-# ---------------------------------------------------
-@app.route('/')
-def home():
-    return "Backend is running!", 200
-
-# CREATE USER
-@app.route('/api/users', methods=['POST'])
+# Routes
+@user_bp.route("/users", methods=["POST"])
 def create_user():
     data = request.json
-    new_user = User(username=data["username"], email=data["email"])
-    db.session.add(new_user)
+    user = User(username=data["username"], email=data["email"])
+    db.session.add(user)
     db.session.commit()
-    return jsonify(new_user.to_dict()), 201
+    return jsonify(user.to_dict()), 201
 
-
-# GET ALL USERS
-@app.route('/api/users', methods=['GET'])
+@user_bp.route("/users", methods=["GET"])
 def get_users():
     users = User.query.all()
-    return jsonify ({
-            'tasks': [ u.to_dict() for u in users],
-            'count ': len ( users )
-            }) , 200
+    return jsonify([u.to_dict() for u in users])
 
-
-# GET ONE USER
-@app.route('/api/users/<int:user_id>', methods=['GET'])
+@user_bp.route("/users/<int:user_id>", methods=["GET"])
 def get_user(user_id):
-    user = User.query.get_or_404 (user_id)
-    return jsonify(user.to_dict()), 200
+    user = User.query.get_or_404(user_id)
+    return jsonify(user.to_dict())
 
-
-# UPDATE USER
-@app.route('/api/users/<int:user_id>', methods=['PUT'])
+@user_bp.route("/users/<int:user_id>", methods=["PUT"])
 def update_user(user_id):
-    user = User.query.get_or_404 (user_id)
-
+    user = User.query.get_or_404(user_id)
     data = request.json
     user.username = data.get("username", user.username)
     user.email = data.get("email", user.email)
-
     db.session.commit()
-    return jsonify(user.to_dict()), 200
+    return jsonify(user.to_dict())
 
-
-# DELETE USER
-@app.route('/api/users/<int:user_id>', methods=['DELETE'])
+@user_bp.route("/users/<int:user_id>", methods=["DELETE"])
 def delete_user(user_id):
-    user = User.query.get_or_404 (user_id)
+    user = User.query.get_or_404(user_id)
     db.session.delete(user)
     db.session.commit()
-    return jsonify({"message": "User deleted"}), 200
+    return jsonify({"message": "User deleted"})
 
-
-# ---------------------------------------------------
-# PART 3: LINK TASK TO USER
-# ---------------------------------------------------
-
-# CREATE TASK FOR USER
-@app.route('/api/users/<int:user_id>/tasks', methods=['POST'])
-def create_task_for_user(user_id):
-    user = User.query.get_or_404 (user_id)
-
+@task_bp.route("/tasks", methods=["POST"])
+def create_task():
     data = request.json
-    new_task = Task(
-        title=data["title"],
-        is_done=data.get("is_done", False),
-        user_id=user_id
-    )
-    db.session.add(new_task)
+    task = Task(title=data["title"], user_id=data.get("user_id"))
+    db.session.add(task)
     db.session.commit()
-    return jsonify(new_task.to_dict()), 201
+    return jsonify(task.to_dict()), 201
 
-
-# GET ALL TASKS FOR USER
-@app.route('/api/users/<int:user_id>/tasks', methods=['GET'])
-def get_tasks_for_user(user_id):
-    user = User.query.get_or_404 (user_id)
-
+@task_bp.route("/users/<int:user_id>/tasks", methods=["GET"])
+def get_user_tasks(user_id):
     tasks = Task.query.filter_by(user_id=user_id).all()
-    return jsonify([t.to_dict() for t in tasks]), 200
-
-
-if __name__ == "__main__":
-    app.run(debug=True , port = 5000)
+    return jsonify([t.to_dict() for t in tasks])
